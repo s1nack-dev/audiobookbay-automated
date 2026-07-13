@@ -444,7 +444,8 @@ async function getResponseData(response, fallbackMessage) {
     }
   }
   if (!response.ok) throw new Error(data?.message || fallbackMessage);
-  return data || {};
+  if (!data) throw new Error(fallbackMessage);
+  return data;
 }
 
 async function sendToQB(link, title) {

@@ -56,7 +56,7 @@ ABB_HOSTNAME='audiobookbay.is' # Default
 PAGE_LIMIT=5                   # Maximum result pages per query; only page 1 loads initially.
 SEARCH_COOLDOWN_SECONDS=5      # Wait time before another uncached upstream search.
 SEARCH_CACHE_TTL_SECONDS=900   # Reuse matching query/page results for 15 minutes.
-PORT=5078                      # Port used by the Flask app
+PORT=5078                      # Port used by the Flask app (Docker requires 5078)
 ```
 
 ### Docker Compose and 1Password
