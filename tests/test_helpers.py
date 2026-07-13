@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 import requests
@@ -269,8 +270,9 @@ def test_extract_magnet_link_uses_default_trackers(monkeypatch, app_module):
     )
 
     magnet = app_module.extract_magnet_link("https://abb.example/book")
+    tracker_urls = parse_qs(urlparse(magnet).query).get("tr", [])
 
-    assert "tracker.openbittorrent.com" in magnet
+    assert any(urlparse(tracker_url).hostname == "tracker.openbittorrent.com" for tracker_url in tracker_urls)
 
 
 def test_extract_book_details_parses_listing_content(monkeypatch, app_module):
