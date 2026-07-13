@@ -56,7 +56,7 @@ ABB_HOSTNAME='audiobookbay.is' # Default
 PAGE_LIMIT=5                   # Maximum result pages per query; only page 1 loads initially.
 SEARCH_COOLDOWN_SECONDS=5      # Wait time before another uncached upstream search.
 SEARCH_CACHE_TTL_SECONDS=900   # Reuse matching query/page results for 15 minutes.
-FLASK_PORT=5078                # Port used by docker container
+PORT=5078                      # Port used by the Flask app
 ```
 
 ### Docker Compose and 1Password
@@ -70,8 +70,9 @@ example:
 DL_PASSWORD=op://Private/qBittorrent/password
 ```
 
-Start the stack through the supplied wrapper, which uses `op inject` to resolve
-the references into a temporary file before Docker Compose starts the container:
+When `.env` uses these references, start the stack through the supplied wrapper.
+It uses `op inject` to resolve references into a temporary file before Docker
+Compose starts the container:
 
 ```bash
 ./scripts/compose-with-op.sh up -d
@@ -96,12 +97,13 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
    ```
 
 2. Copy `.env.example` to `.env` and set the application values. The included
-   `docker-compose.yaml` uses the locally built image:
+   `docker-compose.yaml` pulls the published image by default. To use the local
+   image built above, add `IMAGE_NAME=audiobookbay-automated` to `.env`.
 
    ```yaml
    services:
      audiobookbay-automated:
-       image: audiobookbay-automated:latest
+       image: ${IMAGE_NAME:-ghcr.io/jamesry96/audiobookbay-automated:latest}
        ports:
          - "5078:5078"
        container_name: audiobookbay-automated
@@ -109,10 +111,14 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
          - ${APP_ENV_FILE:-.env}
    ```
 
-   Alternatively, you can use a pre-built image from GHCR by changing the image line to:
-   `image: ghcr.io/jamesry96/audiobookbay-automated:latest`
-
 3. **Start the Application**:
+
+   ```bash
+   docker compose up -d
+   ```
+
+   If `.env` contains `op://` 1Password references, use the wrapper instead:
+
    ```bash
    ./scripts/compose-with-op.sh up -d
    ```
@@ -145,7 +151,7 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
     PAGE_LIMIT=5 # Maximum result pages per query; only page 1 loads initially
     SEARCH_COOLDOWN_SECONDS=5 # Default
     SEARCH_CACHE_TTL_SECONDS=900 # Default (15 minutes)
-    FLASK_PORT=5078 #Default
+    PORT=5078 #Default
 
     # Optional Navigation Bar Entry
     NAV_LINK_NAME=Open Audiobook Player

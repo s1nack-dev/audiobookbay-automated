@@ -111,13 +111,14 @@
 </div>
 {% endif %}
 
-<div class="details-modal" id="details-modal" role="dialog" aria-modal="true" aria-labelledby="details-title" hidden>
+<div class="details-modal" id="details-modal" role="dialog" aria-modal="true" aria-labelledby="details-dialog-title" hidden>
     <div class="details-modal__panel">
+        <h2 class="visually-hidden" id="details-dialog-title">Audiobook details</h2>
         <button class="details-modal__close" id="details-modal-close" type="button" aria-label="Close details">&times;</button>
         <p class="details-modal__loading" id="details-modal-loading">Loading details…</p>
         <p class="details-modal__error" id="details-modal-error" role="alert" hidden></p>
         <div id="details-modal-content" hidden>
-            <h2 id="details-title"></h2>
+            <h3 id="details-title"></h3>
             <div class="details-modal__summary">
                 <img id="details-cover" class="details-modal__cover" alt="" hidden>
                 <dl class="details-modal__metadata" id="details-metadata"></dl>

@@ -28,7 +28,7 @@ load_dotenv()
 
 ABB_HOSTNAME = os.getenv("ABB_HOSTNAME", "audiobookbay.lu")
 
-PAGE_LIMIT = max(1, int(os.getenv("PAGE_LIMIT", 1)))
+PAGE_LIMIT = max(1, int(os.getenv("PAGE_LIMIT", 5)))
 SEARCH_COOLDOWN_SECONDS = max(0, int(os.getenv("SEARCH_COOLDOWN_SECONDS", 5)))
 SEARCH_CACHE_TTL_SECONDS = max(0, int(os.getenv("SEARCH_CACHE_TTL_SECONDS", 900)))
 _search_cache = {}
@@ -73,21 +73,22 @@ NAV_LINK_URL = os.getenv("NAV_LINK_URL")
 # Define the port to be used
 FLASK_PORT = int(os.getenv("PORT", 5078))
 
-# Print configuration
-print(f"ABB_HOSTNAME: {ABB_HOSTNAME}")
-print(f"DOWNLOAD_CLIENT: {DOWNLOAD_CLIENT}")
-print(f"DL_HOST: {DL_HOST}")
-print(f"DL_PORT: {DL_PORT}")
-print(f"DL_URL: {DL_URL}")
-print(f"DL_USERNAME: {DL_USERNAME}")
-print(f"DL_CATEGORY: {DL_CATEGORY}")
-print(f"SAVE_PATH_BASE: {SAVE_PATH_BASE}")
-print(f"NAV_LINK_NAME: {NAV_LINK_NAME}")
-print(f"NAV_LINK_URL: {NAV_LINK_URL}")
-print(f"PAGE_LIMIT: {PAGE_LIMIT}")
-print(f"SEARCH_COOLDOWN_SECONDS: {SEARCH_COOLDOWN_SECONDS}")
-print(f"SEARCH_CACHE_TTL_SECONDS: {SEARCH_CACHE_TTL_SECONDS}")
-print(f"PORT: {FLASK_PORT}")
+
+def log_configuration():
+    """Log non-sensitive runtime configuration when the application starts."""
+    print(f"ABB_HOSTNAME: {ABB_HOSTNAME}")
+    print(f"DOWNLOAD_CLIENT: {DOWNLOAD_CLIENT}")
+    print(f"DL_HOST: {DL_HOST}")
+    print(f"DL_PORT: {DL_PORT}")
+    print(f"DL_URL: {DL_URL}")
+    print(f"DL_CATEGORY: {DL_CATEGORY}")
+    print(f"SAVE_PATH_BASE: {SAVE_PATH_BASE}")
+    print(f"NAV_LINK_NAME: {NAV_LINK_NAME}")
+    print(f"NAV_LINK_URL: {NAV_LINK_URL}")
+    print(f"PAGE_LIMIT: {PAGE_LIMIT}")
+    print(f"SEARCH_COOLDOWN_SECONDS: {SEARCH_COOLDOWN_SECONDS}")
+    print(f"SEARCH_CACHE_TTL_SECONDS: {SEARCH_CACHE_TTL_SECONDS}")
+    print(f"PORT: {FLASK_PORT}")
 
 
 @app.context_processor
@@ -200,7 +201,7 @@ def search_audiobookbay(query, page=1):
 
             cover_image = post.select_one("img[src]")
             cover = (
-                cover_image["src"]
+                urljoin(url, cover_image["src"])
                 if cover_image
                 else "/static/images/default_cover.jpg"
             )
@@ -271,9 +272,20 @@ def get_search_results(query, page=1):
     key = (query.strip().casefold(), page)
     now = time.monotonic()
     with _search_cache_lock:
-        cached = _search_cache.get(key)
-        if cached and now - cached[0] < SEARCH_CACHE_TTL_SECONDS:
-            return cached[1]
+        if SEARCH_CACHE_TTL_SECONDS > 0:
+            expired_keys = [
+                cache_key
+                for cache_key, cached in _search_cache.items()
+                if now - cached[0] >= SEARCH_CACHE_TTL_SECONDS
+            ]
+            for expired_key in expired_keys:
+                del _search_cache[expired_key]
+
+            cached = _search_cache.get(key)
+            if cached:
+                return cached[1]
+        else:
+            _search_cache.clear()
 
         remaining = SEARCH_COOLDOWN_SECONDS - (now - _last_uncached_search_at)
         if remaining > 0:
@@ -283,9 +295,20 @@ def get_search_results(query, page=1):
         _last_uncached_search_at = now
 
     results = search_audiobookbay(query, page)
-    with _search_cache_lock:
-        _search_cache[key] = (time.monotonic(), results)
+    if SEARCH_CACHE_TTL_SECONDS > 0:
+        with _search_cache_lock:
+            _search_cache[key] = (time.monotonic(), results)
     return results
+
+
+def is_audiobookbay_detail_url(url):
+    """Allow server-side detail fetches only for the configured AudiobookBay host."""
+    parsed_url = urlparse(url) if url else None
+    return bool(
+        parsed_url
+        and parsed_url.scheme == "https"
+        and parsed_url.hostname == ABB_HOSTNAME.lower()
+    )
 
 
 # Helper function to extract magnet link from details page
@@ -414,12 +437,7 @@ def sanitize_title(title):
 @app.route("/details", methods=["POST"])
 def details():
     details_url = (request.json or {}).get("link")
-    parsed_url = urlparse(details_url) if details_url else None
-    if (
-        not parsed_url
-        or parsed_url.scheme != "https"
-        or parsed_url.hostname != ABB_HOSTNAME.lower()
-    ):
+    if not is_audiobookbay_detail_url(details_url):
         return jsonify({"message": "Invalid AudiobookBay detail link"}), 400
 
     try:
@@ -478,10 +496,10 @@ def search_page():
 # Endpoint to send magnet link to qBittorrent
 @app.route("/send", methods=["POST"])
 def send():
-    data = request.json
+    data = request.json or {}
     details_url = data.get("link")
     title = data.get("title")
-    if not details_url or not title:
+    if not title or not is_audiobookbay_detail_url(details_url):
         return jsonify({"message": "Invalid request"}), 400
 
     try:
@@ -574,6 +592,7 @@ def status():
 
 
 if __name__ == "__main__":
+    log_configuration()
     app.run(
         host="127.0.0.1",
         port=FLASK_PORT,

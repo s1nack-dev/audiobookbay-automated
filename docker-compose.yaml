@@ -1,6 +1,6 @@
 services:
   audiobookbay-automated:
-    image: audiobookbay-automated:latest
+    image: ${IMAGE_NAME:-ghcr.io/jamesry96/audiobookbay-automated:latest}
     ports:
       - "5078:5078"
     container_name: audiobookbay-automated

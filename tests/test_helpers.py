@@ -134,7 +134,7 @@ def test_search_audiobookbay_parses_book_and_default_cover(monkeypatch, app_modu
     page = """
     <article class="post">
       <div class="postTitle"><h2><a href="/book">A Book</a></h2></div>
-      <img src="https://cover.example/book.jpg">
+      <img src="/covers/book.jpg">
       <div class="postInfo">Language: English Keywords: mystery</div>
       <div class="postContent"><p style="text-align:center">Posted: Today<br>Format: <span>MP3</span><br>Bitrate: <span>128 kbps</span><br>File Size: <span>123</span> MB</p></div>
     </article>
@@ -148,7 +148,7 @@ def test_search_audiobookbay_parses_book_and_default_cover(monkeypatch, app_modu
     assert books[0] == {
         "title": "A Book",
         "link": "https://abb.example/book",
-        "cover": "https://cover.example/book.jpg",
+        "cover": "https://abb.example/covers/book.jpg",
         "language": "English",
         "post_date": "Today",
         "format": "MP3",
@@ -204,6 +204,24 @@ def test_get_search_results_requeries_after_cache_expiry(monkeypatch, app_module
     app_module.get_search_results("Book")
 
     assert search.call_count == 2
+    assert app_module._search_cache == {}
+
+
+def test_get_search_results_evicts_expired_entries(monkeypatch, app_module):
+    search = Mock(return_value=[])
+    monkeypatch.setattr(app_module, "search_audiobookbay", search)
+    monkeypatch.setattr(app_module, "SEARCH_CACHE_TTL_SECONDS", 60)
+    monkeypatch.setattr(app_module, "SEARCH_COOLDOWN_SECONDS", 0)
+    monkeypatch.setattr(
+        app_module,
+        "_search_cache",
+        {("expired", 1): (app_module.time.monotonic() - 61, [{"title": "Old"}])},
+    )
+    monkeypatch.setattr(app_module, "_last_uncached_search_at", 0.0)
+
+    app_module.get_search_results("Book")
+
+    assert ("expired", 1) not in app_module._search_cache
 
 
 def test_extract_magnet_link_uses_page_trackers(monkeypatch, app_module):

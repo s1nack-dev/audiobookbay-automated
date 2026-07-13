@@ -24,9 +24,30 @@ let datePicker;
 let fileSizeSlider;
 
 function initializeFilters() {
+    refreshFilters();
+}
+
+function refreshFilters() {
+    const previousValues = {
+      language: document.getElementById("language-filter").value,
+      bitrate: document.getElementById("bitrate-filter").value,
+      format: document.getElementById("format-filter").value,
+    };
+    if (datePicker) datePicker.destroy();
+    if (fileSizeSlider) fileSizeSlider.destroy();
+    fileSizeSlider = null;
+    document.querySelectorAll("#language-filter, #bitrate-filter, #format-filter").forEach((select) => {
+      select.replaceChildren(new Option(select.options[0].text, ""));
+    });
     populateSelectFilters();
     initializeFileSizeSlider();
     initializeDateRangePicker();
+    Object.entries(previousValues).forEach(([name, value]) => {
+      const select = document.getElementById(`${name}-filter`);
+      if (value && Array.from(select.options).some((option) => option.value === value)) {
+        select.value = value;
+      }
+    });
 }
 
 // --- Helper Functions ---
@@ -95,6 +116,7 @@ function initializeFileSizeSlider() {
         document.querySelector('.file-size-filter-wrapper').style.display = 'none';
         return;
     }
+    document.querySelector('.file-size-filter-wrapper').style.display = 'flex';
 
     const minSize = Math.min(...allSizes);
     const maxSize = Math.max(...allSizes);
@@ -380,8 +402,7 @@ async function loadNextPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: results.dataset.searchQuery, page }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || "Unable to load more results");
+    const data = await getResponseData(response, "Unable to load more results");
 
     data.books.forEach(appendSearchResult);
     if (data.has_more) {
@@ -391,7 +412,8 @@ async function loadNextPage() {
       message.textContent = data.books.length ? "No more pages to load." : "No more results found.";
       message.hidden = false;
     }
-    if (datePicker) applyFilters();
+    refreshFilters();
+    applyFilters();
   } catch (error) {
     message.textContent = error.message;
     message.hidden = false;
@@ -401,20 +423,38 @@ async function loadNextPage() {
   }
 }
 
-function sendToQB(link, title) {
-  fetch("/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ link: link, title: title }),
-  })
-    .then((response) => response.json())
-    .then((data) => {
-      alert(data.message);
-      hideLoadingSpinner();
+async function getResponseData(response, fallbackMessage) {
+  const contentType = response.headers.get("content-type") || "";
+  let data = null;
+  if (contentType.includes("application/json")) {
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+  }
+  if (!response.ok) throw new Error(data?.message || fallbackMessage);
+  return data || {};
+}
+
+async function sendToQB(link, title) {
+  try {
+    const response = await fetch("/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ link: link, title: title }),
     });
+    const data = await getResponseData(response, "Unable to send the download request");
+    alert(data.message);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    hideLoadingSpinner();
+  }
 }
 
 let lastDetailsButton;
+let detailsRequestId = 0;
 
 function initializeDetailsModal() {
   const modal = document.getElementById("details-modal");
@@ -427,6 +467,19 @@ function initializeDetailsModal() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.hidden) closeBookDetails();
+    if (event.key !== "Tab" || modal.hidden) return;
+    const focusable = modal.querySelectorAll(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   });
 }
 
@@ -474,6 +527,7 @@ function renderBookDetails(details) {
 }
 
 async function showBookDetails(link) {
+  const requestId = ++detailsRequestId;
   const modal = document.getElementById("details-modal");
   lastDetailsButton = document.activeElement;
   modal.hidden = false;
@@ -487,16 +541,18 @@ async function showBookDetails(link) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ link }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || "Unable to load details");
+    const data = await getResponseData(response, "Unable to load details");
+    if (requestId !== detailsRequestId || modal.hidden) return;
     renderBookDetails(data);
     setDetailsModalState({ loading: false, error: null, details: true });
   } catch (error) {
+    if (requestId !== detailsRequestId || modal.hidden) return;
     setDetailsModalState({ loading: false, error: error.message, details: false });
   }
 }
 
 function closeBookDetails() {
+  detailsRequestId += 1;
   const modal = document.getElementById("details-modal");
   modal.hidden = true;
   document.body.classList.remove("modal-open");
