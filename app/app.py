@@ -320,7 +320,11 @@ def normalize_audiobookbay_detail_url(url):
     # Disallow credentials in URL and non-default ports.
     if parsed_url.username or parsed_url.password:
         return None
-    if parsed_url.port not in (None, 443):
+    try:
+        port = parsed_url.port
+    except ValueError:
+        return None
+    if port not in (None, 443):
         return None
 
     # Limit requests to expected detail page paths only.
