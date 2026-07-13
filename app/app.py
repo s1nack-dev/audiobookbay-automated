@@ -391,12 +391,24 @@ def detail_label_value(page_text, label):
 
 def extract_book_details(details_url):
     """Fetch and parse the displayable details from an AudiobookBay listing."""
+    parsed = urlparse(details_url or "")
+    allowed_hosts = {"audiobookbay.lu", "www.audiobookbay.lu"}
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.hostname.lower() not in allowed_hosts
+    ):
+        raise requests.exceptions.RequestException("Blocked outbound URL")
+
     response = requests.get(
         details_url,
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         },
         timeout=15,
+        allow_redirects=False,
     )
     response.raise_for_status()
 
