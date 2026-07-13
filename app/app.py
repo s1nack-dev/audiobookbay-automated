@@ -317,7 +317,7 @@ def extract_magnet_link(details_url):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     }
     try:
-        response = requests.get(details_url, headers=headers)
+        response = requests.get(details_url, headers=headers, allow_redirects=False)
         if response.status_code != 200:
             print(
                 f"[ERROR] Failed to fetch details page. Status Code: {response.status_code}"
