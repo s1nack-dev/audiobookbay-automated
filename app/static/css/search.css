@@ -438,8 +438,38 @@ body.modal-open {
     margin: 0 0 16px;
 }
 
-.details-modal__source-link {
+.details-modal__source-link,
+.details-modal__magnet-download {
     display: inline-block;
+    color: #0b7777;
+    font-weight: bold;
+}
+
+.details-modal__magnet-download {
+    width: auto;
+    margin-right: 16px;
+    color: white;
+}
+
+.details-modal__magnet-result {
+    margin: 16px 0;
+}
+
+.details-modal__magnet-result label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.details-modal__magnet-result input {
+    box-sizing: border-box;
+    display: block;
+    margin-bottom: 8px;
+    max-width: 100%;
+    width: 100%;
+}
+
+.details-modal__magnet-link {
     color: #0b7777;
     font-weight: bold;
 }

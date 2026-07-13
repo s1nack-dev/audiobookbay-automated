@@ -134,7 +134,7 @@ def test_qbittorrent_torrents_supports_both_authentication_modes(
 def test_search_audiobookbay_parses_book_and_default_cover(monkeypatch, app_module):
     page = """
     <article class="post">
-      <div class="postTitle"><h2><a href="/book">A Book</a></h2></div>
+      <div class="postTitle"><h2><a href="https://audiobookbay.is/book">A Book</a></h2></div>
       <img src="/covers/book.jpg">
       <div class="postInfo">Language: English Keywords: mystery</div>
       <div class="postContent"><p style="text-align:center">Posted: Today<br>Format: <span>MP3</span><br>Bitrate: <span>128 kbps</span><br>File Size: <span>123</span> MB</p></div>
