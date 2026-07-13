@@ -598,7 +598,8 @@ def status():
 
 if __name__ == "__main__":
     log_configuration()
+    # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host -- required for Docker port publishing
     app.run(
-        host="0.0.0.0",
+        host="0.0.0.0",  # nosec B104: required for Docker port publishing
         port=FLASK_PORT,
     )
