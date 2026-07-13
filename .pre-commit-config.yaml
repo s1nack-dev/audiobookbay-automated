@@ -1,4 +1,4 @@
-minimum_pre_commit_version: "3.7.0"
+minimum_pre_commit_version: "4.6.0"
 default_install_hook_types: [pre-commit, pre-push]
 
 repos:
@@ -10,12 +10,14 @@ repos:
         language: system
         args: ["--fix"]
         files: ^.*\.py$
+        stages: [pre-commit]
 
       - id: ruff-format
         name: Ruff (format)
         entry: bash scripts/ci/checks.sh ruff-format-check
         language: system
         files: ^.*\.py$
+        stages: [pre-commit]
 
       - id: bandit
         name: Bandit (Python security)

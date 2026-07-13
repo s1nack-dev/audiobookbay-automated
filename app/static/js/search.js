@@ -377,8 +377,6 @@ function appendSearchResult(book) {
   downloadButton.type = "button";
   downloadButton.className = "download-button";
   downloadButton.textContent = "Download to Server";
-  downloadButton.dataset.link = book.link;
-  downloadButton.dataset.title = book.title;
   downloadButton.addEventListener("click", () => sendToQB(book.link, book.title));
   actionsCell.append(detailsButton, downloadButton);
 

@@ -436,7 +436,10 @@ def sanitize_title(title):
 
 @app.route("/details", methods=["POST"])
 def details():
-    details_url = (request.json or {}).get("link")
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"message": "Invalid JSON request body"}), 400
+    details_url = data.get("link")
     if not is_audiobookbay_detail_url(details_url):
         return jsonify({"message": "Invalid AudiobookBay detail link"}), 400
 
@@ -478,7 +481,9 @@ def search():
 
 @app.route("/search-page", methods=["POST"])
 def search_page():
-    data = request.json or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"message": "Invalid JSON request body"}), 400
     query = data.get("query", "").strip()
     page = data.get("page")
     if not query or not isinstance(page, int) or page < 2 or page > PAGE_LIMIT:
@@ -594,6 +599,6 @@ def status():
 if __name__ == "__main__":
     log_configuration()
     app.run(
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=FLASK_PORT,
     )
