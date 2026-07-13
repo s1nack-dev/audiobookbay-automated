@@ -49,7 +49,7 @@ run_hook() {
         "${semgrep_targets[@]}"
       ;;
     uv-audit)
-      uv audit --preview-features audit --locked --no-dev --no-test
+      uv audit --preview-features audit --locked --no-dev
       ;;
     hadolint)
       local dockerfile="Dockerfile"
