@@ -495,7 +495,8 @@ def search_page():
     except SearchCooldownError as e:
         return jsonify({"message": str(e)}), 429
     except AudiobookBayUnavailableError as e:
-        return jsonify({"message": str(e)}), 502
+        print(f"[ERROR] AudiobookBay unavailable during paginated search: {e}")
+        return jsonify({"message": "AudiobookBay is currently unavailable"}), 502
 
 
 # Endpoint to send magnet link to qBittorrent
