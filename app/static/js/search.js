@@ -33,15 +33,27 @@ function refreshFilters() {
       bitrate: document.getElementById("bitrate-filter").value,
       format: document.getElementById("format-filter").value,
     };
+    // Capture current file size slider values before destroying
+    let previousFileSizeRange = null;
+    if (fileSizeSlider) {
+      previousFileSizeRange = fileSizeSlider.get().map(parseFloat);
+      fileSizeSlider.destroy();
+      fileSizeSlider = null;
+    }
     if (datePicker) datePicker.destroy();
-    if (fileSizeSlider) fileSizeSlider.destroy();
-    fileSizeSlider = null;
     document.querySelectorAll("#language-filter, #bitrate-filter, #format-filter").forEach((select) => {
       select.replaceChildren(new Option(select.options[0].text, ""));
     });
     populateSelectFilters();
     initializeFileSizeSlider();
     initializeDateRangePicker();
+    // Restore file size slider values, clamping to new range
+    if (previousFileSizeRange && fileSizeSlider) {
+      const range = fileSizeSlider.options.range;
+      const clampedMin = Math.max(previousFileSizeRange[0], range.min);
+      const clampedMax = Math.min(previousFileSizeRange[1], range.max);
+      fileSizeSlider.set([clampedMin, clampedMax]);
+    }
     Object.entries(previousValues).forEach(([name, value]) => {
       const select = document.getElementById(`${name}-filter`);
       if (value && Array.from(select.options).some((option) => option.value === value)) {
