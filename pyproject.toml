@@ -1,0 +1,31 @@
+[project]
+name = "audiobookbay-automated"
+version = "0.1.0"
+description = "Search AudiobookBay and send magnet links to torrent clients."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "deluge-web-client>=2.0.3",
+    "flask>=3.1.3",
+    "python-dotenv>=1.2.2",
+    "qbittorrent-api>=2026.7.0",
+    "requests>=2.34.2",
+    "transmission-rpc>=7.0.11",
+]
+
+[dependency-groups]
+test = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
+dev = [
+    "pre-commit>=4.6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing"
+
+[tool.uv]
+package = false

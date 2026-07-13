@@ -1,5 +1,7 @@
 import os
 import re
+import threading
+import time
 import requests
 from flask import Flask, request, render_template, jsonify
 from bs4 import BeautifulSoup
@@ -8,16 +10,30 @@ from transmission_rpc import Client as transmissionrpc
 from deluge_web_client import DelugeWebClient as delugewebclient
 from deluge_web_client import TorrentOptions as delugetorrentoptions
 from dotenv import load_dotenv
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, quote_plus
 
 app = Flask(__name__)
+
+
+class AudiobookBayUnavailableError(Exception):
+    """Raised when AudiobookBay cannot be reached for a search."""
+
+
+class SearchCooldownError(Exception):
+    """Raised when an uncached search is requested too soon."""
+
 
 # Load environment variables
 load_dotenv()
 
 ABB_HOSTNAME = os.getenv("ABB_HOSTNAME", "audiobookbay.lu")
 
-PAGE_LIMIT = int(os.getenv("PAGE_LIMIT", 5))
+PAGE_LIMIT = max(1, int(os.getenv("PAGE_LIMIT", 5)))
+SEARCH_COOLDOWN_SECONDS = max(0, int(os.getenv("SEARCH_COOLDOWN_SECONDS", 5)))
+SEARCH_CACHE_TTL_SECONDS = max(0, int(os.getenv("SEARCH_CACHE_TTL_SECONDS", 900)))
+_search_cache = {}
+_search_cache_lock = threading.Lock()
+_last_uncached_search_at = 0.0
 
 DOWNLOAD_CLIENT = os.getenv("DOWNLOAD_CLIENT")
 DL_URL = os.getenv("DL_URL")
@@ -37,6 +53,16 @@ else:
 
 DL_USERNAME = os.getenv("DL_USERNAME")
 DL_PASSWORD = os.getenv("DL_PASSWORD")
+DL_API_KEY = os.getenv("DL_API_KEY")
+
+# Validate HTTPS requirement when API key is configured
+if DL_API_KEY and DL_URL:
+    parsed = urlparse(DL_URL)
+    is_loopback = parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    if parsed.scheme != "https" and not is_loopback:
+        raise ValueError(
+            "DL_URL must use HTTPS when DL_API_KEY is set (unless using loopback address for local testing)"
+        )
 DL_CATEGORY = os.getenv("DL_CATEGORY", "Audiobookbay-Audiobooks")
 SAVE_PATH_BASE = os.getenv("SAVE_PATH_BASE")
 
@@ -47,19 +73,22 @@ NAV_LINK_URL = os.getenv("NAV_LINK_URL")
 # Define the port to be used
 FLASK_PORT = int(os.getenv("PORT", 5078))
 
-# Print configuration
-print(f"ABB_HOSTNAME: {ABB_HOSTNAME}")
-print(f"DOWNLOAD_CLIENT: {DOWNLOAD_CLIENT}")
-print(f"DL_HOST: {DL_HOST}")
-print(f"DL_PORT: {DL_PORT}")
-print(f"DL_URL: {DL_URL}")
-print(f"DL_USERNAME: {DL_USERNAME}")
-print(f"DL_CATEGORY: {DL_CATEGORY}")
-print(f"SAVE_PATH_BASE: {SAVE_PATH_BASE}")
-print(f"NAV_LINK_NAME: {NAV_LINK_NAME}")
-print(f"NAV_LINK_URL: {NAV_LINK_URL}")
-print(f"PAGE_LIMIT: {PAGE_LIMIT}")
-print(f"PORT: {FLASK_PORT}")
+
+def log_configuration():
+    """Log non-sensitive runtime configuration when the application starts."""
+    print(f"ABB_HOSTNAME: {ABB_HOSTNAME}")
+    print(f"DOWNLOAD_CLIENT: {DOWNLOAD_CLIENT}")
+    print(f"DL_HOST: {DL_HOST}")
+    print(f"DL_PORT: {DL_PORT}")
+    print(f"DL_URL: {DL_URL}")
+    print(f"DL_CATEGORY: {DL_CATEGORY}")
+    print(f"SAVE_PATH_BASE: {SAVE_PATH_BASE}")
+    print(f"NAV_LINK_NAME: {NAV_LINK_NAME}")
+    print(f"NAV_LINK_URL: {NAV_LINK_URL}")
+    print(f"PAGE_LIMIT: {PAGE_LIMIT}")
+    print(f"SEARCH_COOLDOWN_SECONDS: {SEARCH_COOLDOWN_SECONDS}")
+    print(f"SEARCH_CACHE_TTL_SECONDS: {SEARCH_CACHE_TTL_SECONDS}")
+    print(f"PORT: {FLASK_PORT}")
 
 
 @app.context_processor
@@ -70,29 +99,65 @@ def inject_nav_link():
     }
 
 
-def is_url_valid(url):
-    """
-    Checks if URL is valid and returns a 200 status code. Primarily used to check if cover images are accessible.
+def qbittorrent_api_request(method, endpoint, **kwargs):
+    """Make an authenticated qBittorrent Web API request using an API key."""
+    if not DL_API_KEY:
+        raise RuntimeError("DL_API_KEY is not configured")
 
-    Args:
-        url (str): The URL to check.
-    """
-    try:
-        # Use a HEAD request with a short timeout and stream parameter
-        response = requests.head(url, timeout=3, allow_redirects=True, stream=True)
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
-        return False
+    response = requests.request(
+        method,
+        f"{DL_URL.rstrip('/')}/api/v2/{endpoint.lstrip('/')}",
+        headers={"Authorization": f"Bearer {DL_API_KEY}"},
+        timeout=30,
+        **kwargs,
+    )
+    response.raise_for_status()
+    if response.text.strip() == "Fails.":
+        raise RuntimeError("qBittorrent rejected the request")
+    return response
+
+
+def qbittorrent_add_torrent(magnet_link, save_path):
+    if DL_API_KEY:
+        qbittorrent_api_request(
+            "POST",
+            "torrents/add",
+            data={
+                "urls": magnet_link,
+                "savepath": save_path,
+                "category": DL_CATEGORY,
+            },
+        )
+        return
+
+    qb = Client(host=DL_HOST, port=DL_PORT, username=DL_USERNAME, password=DL_PASSWORD)
+    qb.auth_log_in()
+    qb.torrents_add(urls=magnet_link, save_path=save_path, category=DL_CATEGORY)
+
+
+def qbittorrent_torrents():
+    if DL_API_KEY:
+        torrents_data = qbittorrent_api_request(
+            "GET", "torrents/info", params={"category": DL_CATEGORY}
+        ).json()
+        # Wrap dicts in simple namespace for consistent attribute access
+        from types import SimpleNamespace
+
+        return [SimpleNamespace(**t) for t in torrents_data]
+
+    qb = Client(host=DL_HOST, port=DL_PORT, username=DL_USERNAME, password=DL_PASSWORD)
+    qb.auth_log_in()
+    return qb.torrents_info(category=DL_CATEGORY)
 
 
 # Helper function to search AudiobookBay
-def search_audiobookbay(query, max_pages=PAGE_LIMIT):
+def search_audiobookbay(query, page=1):
     """
     Searches AudiobookBay for a given query and scrapes the results.
 
     Args:
         query (str): The search term.
-        max_pages (int): The maximum number of pages to scrape.
+        page (int): The single results page to scrape.
 
     Returns:
         list: A list of dictionaries, where each dictionary represents a book
@@ -105,103 +170,179 @@ def search_audiobookbay(query, max_pages=PAGE_LIMIT):
 
     print(f"Searching for '{query}' on https://{ABB_HOSTNAME}...")
 
-    for page in range(1, max_pages + 1):
-        url = f"https://{ABB_HOSTNAME}/page/{page}/?s={query.lower().replace(' ', '+')}"
+    url = f"https://{ABB_HOSTNAME}/page/{page}/?s={quote_plus(query.lower())}"
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        # Raise an exception for bad status codes (4xx or 5xx)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Failed to fetch page {page}. Reason: {e}")
+        raise AudiobookBayUnavailableError(
+            f"AudiobookBay ({ABB_HOSTNAME}) did not respond. Please try again later."
+        ) from e
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    posts = soup.select(".post")
+
+    if not posts:
+        print(f"No results found on page {page}.")
+        return results
+
+    print(f"Processing {len(posts)} posts on page {page}...")
+
+    for post in posts:
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            # Raise an exception for bad status codes (4xx or 5xx)
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Failed to fetch page {page}. Reason: {e}")
-            break
+            title_element = post.select_one(".postTitle > h2 > a")
+            if not title_element:
+                continue  # Skip post if title is not found
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        posts = soup.select(".post")
+            title = title_element.text.strip()
+            link = f"https://{ABB_HOSTNAME}{title_element['href']}"
 
-        # If no posts are found on the page, stop paginating
-        if not posts:
-            print(f"No more results found on page {page}.")
-            break
+            cover_image = post.select_one("img[src]")
+            cover = (
+                urljoin(url, cover_image["src"])
+                if cover_image
+                else "/static/images/default_cover.jpg"
+            )
 
-        print(f"Processing {len(posts)} posts on page {page}...")
+            post_info = post.select_one(".postInfo")
+            post_info_text = (
+                post_info.get_text(separator=" ", strip=True) if post_info else ""
+            )
 
-        for post in posts:
-            try:
-                title_element = post.select_one(".postTitle > h2 > a")
-                if not title_element:
-                    continue  # Skip post if title is not found
+            language_match = re.search(
+                r"Language:\s*(.*?)(?:\s*Keywords:|$)", post_info_text, re.DOTALL
+            )
+            language = language_match.group(1).strip() if language_match else "N/A"
 
-                title = title_element.text.strip()
-                link = f"https://{ABB_HOSTNAME}{title_element['href']}"
+            details_paragraph = post.select_one(
+                ".postContent p[style*='text-align:center']"
+            )
 
-                # Check if the cover URL is valid, otherwise use the default
-                cover_url = (
-                    post.select_one("img")["src"] if post.select_one("img") else None
-                )
-                if cover_url and is_url_valid(cover_url):
-                    cover = cover_url
-                else:
-                    cover = "/static/images/default_cover.jpg"
+            post_date, book_format, bitrate, file_size = "N/A", "N/A", "N/A", "N/A"
 
-                post_info = post.select_one(".postInfo")
-                post_info_text = (
-                    post_info.get_text(separator=" ", strip=True) if post_info else ""
+            if details_paragraph:
+                details_html = str(details_paragraph)
+
+                post_date_match = re.search(r"Posted:\s*([^<]+)", details_html)
+                post_date = (
+                    post_date_match.group(1).strip() if post_date_match else "N/A"
                 )
 
-                language_match = re.search(
-                    r"Language:\s*(.*?)(?:\s*Keywords:|$)", post_info_text, re.DOTALL
+                format_match = re.search(
+                    r"Format:\s*<span[^>]*>([^<]+)</span>", details_html
                 )
-                language = language_match.group(1).strip() if language_match else "N/A"
+                book_format = format_match.group(1).strip() if format_match else "N/A"
 
-                details_paragraph = post.select_one(
-                    ".postContent p[style*='text-align:center']"
+                bitrate_match = re.search(
+                    r"Bitrate:\s*<span[^>]*>([^<]+)</span>", details_html
                 )
+                bitrate = bitrate_match.group(1).strip() if bitrate_match else "N/A"
 
-                post_date, book_format, bitrate, file_size = "N/A", "N/A", "N/A", "N/A"
-
-                if details_paragraph:
-                    details_html = str(details_paragraph)
-
-                    post_date_match = re.search(r"Posted:\s*([^<]+)", details_html)
-                    post_date = (
-                        post_date_match.group(1).strip() if post_date_match else "N/A"
-                    )
-
-                    format_match = re.search(
-                        r"Format:\s*<span[^>]*>([^<]+)</span>", details_html
-                    )
-                    book_format = (
-                        format_match.group(1).strip() if format_match else "N/A"
-                    )
-
-                    bitrate_match = re.search(
-                        r"Bitrate:\s*<span[^>]*>([^<]+)</span>", details_html
-                    )
-                    bitrate = bitrate_match.group(1).strip() if bitrate_match else "N/A"
-
-                    file_size_match = re.search(
-                        r"File Size:\s*<span[^>]*>([^<]+)</span>\s*([^<]+)",
-                        details_html,
-                    )
-                    if file_size_match:
-                        file_size = f"{file_size_match.group(1).strip()} {file_size_match.group(2).strip()}"
-
-                results.append(
-                    {
-                        "title": title,
-                        "link": link,
-                        "cover": cover,
-                        "language": language,
-                        "post_date": post_date,
-                        "format": book_format,
-                        "bitrate": bitrate,
-                        "file_size": file_size,
-                    }
+                file_size_match = re.search(
+                    r"File Size:\s*<span[^>]*>([^<]+)</span>\s*([^<]+)",
+                    details_html,
                 )
-            except Exception as e:
-                print(f"[ERROR] Could not process a post. Details: {e}")
-                continue
+                if file_size_match:
+                    file_size = f"{file_size_match.group(1).strip()} {file_size_match.group(2).strip()}"
+
+            results.append(
+                {
+                    "title": title,
+                    "link": link,
+                    "cover": cover,
+                    "language": language,
+                    "post_date": post_date,
+                    "format": book_format,
+                    "bitrate": bitrate,
+                    "file_size": file_size,
+                }
+            )
+        except Exception as e:
+            print(f"[ERROR] Could not process a post. Details: {e}")
+            continue
     return results
+
+
+def get_search_results(query, page=1):
+    """Return a cached page of results, rate-limiting only upstream requests."""
+    global _last_uncached_search_at
+
+    key = (query.strip().casefold(), page)
+    now = time.monotonic()
+    with _search_cache_lock:
+        if SEARCH_CACHE_TTL_SECONDS > 0:
+            expired_keys = [
+                cache_key
+                for cache_key, cached in _search_cache.items()
+                if now - cached[0] >= SEARCH_CACHE_TTL_SECONDS
+            ]
+            for expired_key in expired_keys:
+                del _search_cache[expired_key]
+
+            cached = _search_cache.get(key)
+            if cached:
+                return cached[1]
+        else:
+            _search_cache.clear()
+
+        remaining = SEARCH_COOLDOWN_SECONDS - (now - _last_uncached_search_at)
+        if remaining > 0:
+            raise SearchCooldownError(
+                f"Please wait {int(remaining) + 1} seconds before another search."
+            )
+        _last_uncached_search_at = now
+
+    results = search_audiobookbay(query, page)
+    if SEARCH_CACHE_TTL_SECONDS > 0:
+        with _search_cache_lock:
+            _search_cache[key] = (time.monotonic(), results)
+    return results
+
+
+def normalize_audiobookbay_detail_url(url):
+    """Return a canonical, safe AudiobookBay detail URL or None."""
+    if not isinstance(url, str):
+        return None
+
+    candidate = url.strip()
+    if not candidate:
+        return None
+
+    parsed_url = urlparse(candidate)
+    if parsed_url.scheme != "https":
+        return None
+
+    if parsed_url.hostname != ABB_HOSTNAME.lower():
+        return None
+
+    # Disallow credentials in URL and non-default ports.
+    if parsed_url.username or parsed_url.password:
+        return None
+    try:
+        port = parsed_url.port
+    except ValueError:
+        return None
+    if port not in (None, 443):
+        return None
+
+    # Reject query strings and fragments to avoid user-controlled URL variants.
+    if parsed_url.query or parsed_url.fragment:
+        return None
+
+    # Limit requests to expected detail page paths only.
+    normalized_path = re.sub(r"/+", "/", parsed_url.path or "")
+    if not re.fullmatch(r"/audio-books/[A-Za-z0-9._~%+\-]+/?", normalized_path):
+        return None
+
+    # Canonicalize to a fixed trusted origin and validated path only.
+    return f"https://{ABB_HOSTNAME.lower()}{normalized_path}"
+
+
+def is_audiobookbay_detail_url(url):
+    """Return whether *url* is a safe AudiobookBay detail-page URL."""
+    return normalize_audiobookbay_detail_url(url) is not None
 
 
 # Helper function to extract magnet link from details page
@@ -210,7 +351,7 @@ def extract_magnet_link(details_url):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     }
     try:
-        response = requests.get(details_url, headers=headers)
+        response = requests.get(details_url, headers=headers, allow_redirects=False)
         if response.status_code != 200:
             print(
                 f"[ERROR] Failed to fetch details page. Status Code: {response.status_code}"
@@ -257,9 +398,97 @@ def extract_magnet_link(details_url):
         return None
 
 
+DETAIL_LABELS = (
+    "Category",
+    "Language",
+    "Keywords",
+    "Shared by",
+    "Written by",
+    "Read by",
+    "Format",
+    "Bitrate",
+    "File Size",
+    "Posted",
+)
+
+
+def detail_label_value(page_text, label):
+    """Return one AudiobookBay metadata value from the detail-page text."""
+    next_labels = "|".join(re.escape(item) for item in DETAIL_LABELS)
+    match = re.search(
+        rf"{re.escape(label)}\s*:\s*(.*?)(?=\s*(?:{next_labels})\s*:|\n|$)",
+        page_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return re.sub(r"\s+", " ", match.group(1)).strip() if match else None
+
+
+def extract_book_details(details_url):
+    """Fetch and parse the displayable details from an AudiobookBay listing."""
+    safe_details_url = normalize_audiobookbay_detail_url(details_url)
+    if not safe_details_url:
+        raise requests.exceptions.RequestException("Blocked outbound URL")
+
+    response = requests.get(
+        safe_details_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        },
+        timeout=15,
+        allow_redirects=False,
+    )
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    content = soup.select_one(".postContent") or soup
+    page_text = content.get_text("\n", strip=True)
+    title = soup.select_one(".postTitle h1, h1")
+    cover = content.select_one("img[src]") or soup.select_one(".post img[src]")
+
+    metadata_terms = tuple(f"{label.lower()}:" for label in DETAIL_LABELS)
+    description = []
+    for paragraph in content.select("p"):
+        text = paragraph.get_text(" ", strip=True)
+        if text and not any(term in text.lower() for term in metadata_terms):
+            description.append(text)
+
+    return {
+        "title": title.get_text(" ", strip=True) if title else "Audiobook details",
+        "category": detail_label_value(page_text, "Category"),
+        "language": detail_label_value(page_text, "Language"),
+        "keywords": detail_label_value(page_text, "Keywords"),
+        "shared_by": detail_label_value(page_text, "Shared by"),
+        "written_by": detail_label_value(page_text, "Written by"),
+        "read_by": detail_label_value(page_text, "Read by"),
+        "format": detail_label_value(page_text, "Format"),
+        "bitrate": detail_label_value(page_text, "Bitrate"),
+        "cover": urljoin(safe_details_url, cover["src"]) if cover else None,
+        "description": "\n\n".join(description) or "No description is available.",
+        "source_url": safe_details_url,
+    }
+
+
 # Helper function to sanitize titles
 def sanitize_title(title):
     return re.sub(r'[<>:"/\\|?*]', "", title).strip()
+
+
+@app.route("/details", methods=["POST"])
+def details():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"message": "Invalid JSON request body"}), 400
+    details_url = normalize_audiobookbay_detail_url(data.get("link"))
+    if not details_url:
+        return jsonify({"message": "Invalid AudiobookBay detail link"}), 400
+
+    try:
+        return jsonify(extract_book_details(details_url))
+    except requests.exceptions.RequestException:
+        return jsonify({"message": "Unable to load details from AudiobookBay"}), 502
+    except Exception as e:
+        print(f"[ERROR] Failed to load book details: {e}")
+        return jsonify({"message": "Unable to parse AudiobookBay details"}), 500
 
 
 # Endpoint for search page
@@ -271,37 +500,66 @@ def search():
         if request.method == "POST":  # Form submitted
             query = request.form["query"]
             if query:  # Only search if the query is not empty
-                books = search_audiobookbay(query)
-        return render_template("search.html", books=books, query=query)
+                books = get_search_results(query)
+        return render_template(
+            "search.html",
+            books=books,
+            query=query,
+            has_more=bool(books) and PAGE_LIMIT > 1,
+        )
+    except SearchCooldownError as e:
+        return render_template(
+            "search.html", books=books, error=str(e), query=query
+        ), 429
     except Exception as e:
         print(f"[ERROR] Failed to search: {e}")
         return render_template(
             "search.html", books=books, error=f"Failed to search. {str(e)}", query=query
-        )
+        ), 502
+
+
+@app.route("/search-page", methods=["POST"])
+def search_page():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"message": "Invalid JSON request body"}), 400
+    query = data.get("query", "").strip()
+    page = data.get("page")
+    if not query or not isinstance(page, int) or page < 2 or page > PAGE_LIMIT:
+        return jsonify({"message": "Invalid search page request"}), 400
+
+    try:
+        books = get_search_results(query, page)
+        return jsonify({"books": books, "has_more": bool(books) and page < PAGE_LIMIT})
+    except SearchCooldownError as e:
+        print(f"[WARN] Search cooldown triggered: {e}")
+        return jsonify(
+            {"message": "Search is temporarily rate-limited. Please try again shortly."}
+        ), 429
+    except AudiobookBayUnavailableError as e:
+        print(f"[ERROR] AudiobookBay unavailable during paginated search: {e}")
+        return jsonify({"message": "AudiobookBay is currently unavailable"}), 502
 
 
 # Endpoint to send magnet link to qBittorrent
 @app.route("/send", methods=["POST"])
 def send():
-    data = request.json
+    data = request.json or {}
     details_url = data.get("link")
     title = data.get("title")
-    if not details_url or not title:
+    safe_details_url = normalize_audiobookbay_detail_url(details_url)
+    if not title or not safe_details_url:
         return jsonify({"message": "Invalid request"}), 400
 
     try:
-        magnet_link = extract_magnet_link(details_url)
+        magnet_link = extract_magnet_link(safe_details_url)
         if not magnet_link:
             return jsonify({"message": "Failed to extract magnet link"}), 500
 
         save_path = f"{SAVE_PATH_BASE}/{sanitize_title(title)}"
 
         if DOWNLOAD_CLIENT == "qbittorrent":
-            qb = Client(
-                host=DL_HOST, port=DL_PORT, username=DL_USERNAME, password=DL_PASSWORD
-            )
-            qb.auth_log_in()
-            qb.torrents_add(urls=magnet_link, save_path=save_path, category=DL_CATEGORY)
+            qbittorrent_add_torrent(magnet_link, save_path)
         elif DOWNLOAD_CLIENT == "transmission":
             transmission = transmissionrpc(
                 host=DL_HOST,
@@ -349,11 +607,7 @@ def status():
             ]
             return render_template("status.html", torrents=torrent_list)
         elif DOWNLOAD_CLIENT == "qbittorrent":
-            qb = Client(
-                host=DL_HOST, port=DL_PORT, username=DL_USERNAME, password=DL_PASSWORD
-            )
-            qb.auth_log_in()
-            torrents = qb.torrents_info(category=DL_CATEGORY)
+            torrents = qbittorrent_torrents()
             torrent_list = [
                 {
                     "name": torrent.name,
@@ -387,4 +641,9 @@ def status():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=FLASK_PORT)
+    log_configuration()
+    # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host -- required for Docker port publishing
+    app.run(
+        host="0.0.0.0",  # nosec B104: required for Docker port publishing
+        port=FLASK_PORT,
+    )

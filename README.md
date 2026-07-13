@@ -35,6 +35,7 @@ AudiobookBay Downloader provides a simple and user-friendly interface for users 
 ### Prerequisites
 - **Deluge, qBittorrent or Transmission** (with the WebUI enabled)
 - **Docker** (optional, for containerized deployments)
+- **uv** (for local Python development and tests)
 
 ### Environment Variables
 The app uses environment variables to configure its behavior. Below are the required variables:
@@ -42,17 +43,44 @@ The app uses environment variables to configure its behavior. Below are the requ
 # For some unknown reason some users have issues if the hostname is quoted, if it doesn't work try removing the quotes. I have no idea why this happens and can only assume it depends on the host system and how it handles envs/DNS lookup.
 
 ```env
-DL_SCHEME=http
+DOWNLOAD_CLIENT=qbittorrent      # qbittorrent, transmission, or delugeweb
+DL_SCHEME=https                  # Use HTTPS (required when DL_API_KEY is set). Keep TLS verification enabled.
 DL_HOST=192.168.xxx.xxx        # IP or hostname of your qBittorrent or Transmission instance
 DL_PORT=8080                   # torrent WebUI port
-DL_USERNAME=YOUR_USER          # torrent username
-DL_PASSWORD=YOUR_PASSWORD      # torrent password
+DL_USERNAME=YOUR_USER          # torrent username (not needed when using DL_API_KEY)
+DL_PASSWORD=YOUR_PASSWORD      # torrent password (not needed when using DL_API_KEY)
+DL_API_KEY=                    # qBittorrent v5.2+ API key (optional; takes precedence)
 DL_CATEGORY=abb-downloader     # torrent category for downloads
 SAVE_PATH_BASE=/audiobooks     # Root path for audiobook downloads (relative to torrent)
 ABB_HOSTNAME='audiobookbay.is' # Default
-PAGE_LIMIT=5                   # Defaults to 5 if not set, more than this may probably rate limit.
-FLASK_PORT=5078                # Port used by docker container
+PAGE_LIMIT=5                   # Maximum result pages per query; only page 1 loads initially.
+SEARCH_COOLDOWN_SECONDS=5      # Wait time before another uncached upstream search.
+SEARCH_CACHE_TTL_SECONDS=900   # Reuse matching query/page results for 15 minutes.
+PORT=5078                      # Port used by the Flask app (Docker requires 5078)
 ```
+
+### Docker Compose and 1Password
+
+Docker Compose reads the application configuration from `.env`; it does not need
+an `environment:` list in `docker-compose.yaml`. For secrets stored in
+1Password, replace the value in `.env` with its secret-reference path, for
+example:
+
+```env
+DL_PASSWORD=op://Private/qBittorrent/password
+```
+
+When `.env` uses these references, start the stack through the supplied wrapper.
+It uses `op inject` to resolve references into a temporary file before Docker
+Compose starts the container:
+
+```bash
+./scripts/compose-with-op.sh up -d
+```
+
+Install and sign in to the 1Password CLI on the Docker host first. The resolved
+secret is not written to `.env`, committed to Git, or passed to the container as
+a 1Password credential.
 The following optional variables add an additional entry to the navigation bar. This is useful for linking to your audiobook player or another related service:
 
 ```
@@ -62,45 +90,47 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
 
 ### Using Docker
 
-1. Use `docker-compose` for quick deployment. Example `docker-compose.yml`:
+1. Build the image locally:
 
-   ```yaml
-   version: '3.8'
-
-   services:
-     audiobookbay-downloader:
-       image: ghcr.io/jamesry96/audiobookbay-automated:latest
-       ports:
-         - "5078:5078"
-       container_name: audiobookbay-downloader
-       environment:
-         - DOWNLOAD_CLIENT=qbittorrent
-         - DL_SCHEME=http
-         - DL_HOST=192.168.1.123
-         - DL_PORT=8080
-         - DL_USERNAME=admin
-         - DL_PASSWORD=pass
-         - DL_CATEGORY=abb-downloader
-         - SAVE_PATH_BASE=/audiobooks
-         - ABB_HOSTNAME='audiobookbay.is' #Default
-         - PAGE_LIMIT=5 #Default
-         - FLASK_PORT=5078 #Default
-         - NAV_LINK_NAME=Open Audiobook Player #Optional
-         - NAV_LINK_URL=https://audiobooks.yourdomain.com/ #Optional
+   ```bash
+   docker build -t audiobookbay-automated .
    ```
 
-2. **Start the Application**:
+2. Copy `.env.example` to `.env` and set the application values. The included
+   `docker-compose.yaml` pulls the published image by default. To use the local
+   image built above, add `IMAGE_NAME=audiobookbay-automated` to `.env`.
+
+   ```yaml
+   services:
+     audiobookbay-automated:
+       image: ${IMAGE_NAME:-ghcr.io/jamesry96/audiobookbay-automated:latest}
+       ports:
+         - "5078:5078"
+       container_name: audiobookbay-automated
+       env_file:
+         - ${APP_ENV_FILE:-.env}
+   ```
+
+3. **Start the Application**:
+
    ```bash
-   docker-compose up -d
+   docker compose up -d
+   ```
+
+   If `.env` contains `op://` 1Password references, use the wrapper instead:
+
+   ```bash
+   ./scripts/compose-with-op.sh up -d
    ```
 
 ### Running Locally
-1. **Install Dependencies**:
-   Ensure you have Python installed, then install the required dependencies:
+1. **Install dependencies with uv**:
+
    ```bash
-   pip install -r requirements.txt
-   
-2. Create a .env file in the project directory to configure your application. Below is an  example of the required variables:
+   uv sync --all-groups
+   ```
+
+2. Create a `.env` file in the project directory to configure your application. Below is an example of the required variables:
     ```
     # Torrent Client Configuration
     DOWNLOAD_CLIENT=transmission # Change to delugeweb, transmission or qbittorrent
@@ -109,6 +139,8 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
     DL_PORT=8080
     DL_USERNAME=admin
     DL_PASSWORD=pass
+    # Or, for qBittorrent v5.2+, use an API key instead:
+    # DL_API_KEY=qbt_your_api_key
     DL_CATEGORY=abb-downloader
     SAVE_PATH_BASE=/audiobooks
     
@@ -116,8 +148,10 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
     ABB_HOSTNAME='audiobookbay.is' #Default
     # ABB_HOSTNAME='audiobookbay.lu' #Alternative
 
-    PAGE_LIMIT=5 #Default
-    FLASK_PORT=5078 #Default
+    PAGE_LIMIT=5 # Maximum result pages per query; only page 1 loads initially
+    SEARCH_COOLDOWN_SECONDS=5 # Default
+    SEARCH_CACHE_TTL_SECONDS=900 # Default (15 minutes)
+    PORT=5078 #Default
 
     # Optional Navigation Bar Entry
     NAV_LINK_NAME=Open Audiobook Player
@@ -126,7 +160,7 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
 
 3. Start the app:
    ```bash
-   python app.py
+   uv run python app/app.py
    ```
 
 ---

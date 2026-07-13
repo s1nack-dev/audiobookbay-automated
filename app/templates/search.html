@@ -20,7 +20,7 @@
     <h1>Search AudiobookBay</h1>
 </div>
 <div class="search-container" id="search-container">
-<form method="post" class="search-form" onsubmit="showLoadingSpinner()">
+<form method="post" action="{{ url_for('search') }}" class="search-form" onsubmit="showLoadingSpinner()">
     <input type="text" name="query" placeholder="Enter book name" class="search-bar" value="{{ query }}" required>
     <button type="submit" class="search-button">
         <span class="button-text">Search</span>
@@ -77,7 +77,7 @@
 {% endif %}
 
 <table>
-    <tbody id="results-table-body">
+    <tbody id="results-table-body" data-search-query="{{ query }}">
         {% for book in books %}
         <tr class="result-row"
             data-language="{{ book.language }}"
@@ -96,12 +96,37 @@
                 </div>
             </td>
             <td>
-                <button onclick="window.open('{{ book.link }}', '_blank')">Details</button>
-                <button onclick="sendToQB('{{ book.link|escape }}', '{{ book.title|escape }}')">Download to Server</button>
+                <button class="details-button" type="button" data-details-url="{{ book.link }}">Details</button>
+                <button class="download-button" type="button" data-link="{{ book.link }}" data-title="{{ book.title }}">Download to Server</button>
             </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+
+{% if books and has_more %}
+<div class="load-more-container" id="load-more-container">
+    <button id="load-more-button" type="button" data-next-page="2">Load next page</button>
+    <p id="load-more-message" role="status" hidden></p>
+</div>
+{% endif %}
+
+<div class="details-modal" id="details-modal" role="dialog" aria-modal="true" aria-labelledby="details-dialog-title" hidden>
+    <div class="details-modal__panel">
+        <h2 class="visually-hidden" id="details-dialog-title">Audiobook details</h2>
+        <button class="details-modal__close" id="details-modal-close" type="button" aria-label="Close details">&times;</button>
+        <p class="details-modal__loading" id="details-modal-loading">Loading details…</p>
+        <p class="details-modal__error" id="details-modal-error" role="alert" hidden></p>
+        <div id="details-modal-content" hidden>
+            <h3 id="details-title"></h3>
+            <div class="details-modal__summary">
+                <img id="details-cover" class="details-modal__cover" alt="" hidden>
+                <dl class="details-modal__metadata" id="details-metadata"></dl>
+            </div>
+            <div class="details-modal__description" id="details-description"></div>
+            <a id="details-source-link" class="details-modal__source-link" target="_blank" rel="noopener noreferrer">Open on AudiobookBay</a>
+        </div>
+    </div>
+</div>
 
 {% endblock %}

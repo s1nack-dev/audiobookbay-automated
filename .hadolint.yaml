@@ -1,0 +1,7 @@
+failure-threshold: warning
+trustedRegistries:
+  - docker.io
+  - ghcr.io
+ignored:
+  # Debian slim package versions change with the upstream package index.
+  - DL3008
