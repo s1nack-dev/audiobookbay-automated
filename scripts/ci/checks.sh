@@ -90,7 +90,7 @@ run_hook() {
     trufflehog)
       local base_sha="${TRUFFLEHOG_BASE_SHA:-${PRE_COMMIT_FROM_REF:-}}"
       if [[ -z "$base_sha" ]]; then
-        base_sha="$(git rev-parse HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -n 1)"
+        base_sha="$(git for-each-ref --format='%(upstream:short)' "$(git symbolic-ref -q HEAD)" 2>/dev/null | xargs -r git merge-base HEAD 2>/dev/null || git rev-parse HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -n 1)"
       fi
       if [[ "$base_sha" =~ ^0+$ ]]; then
         base_sha="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
