@@ -1,3 +1,5 @@
+.PHONY: run sync test lock
+
 run:
 	uv run python app/app.py
 
