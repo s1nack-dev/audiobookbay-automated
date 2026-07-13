@@ -197,7 +197,12 @@ def search_audiobookbay(query, page=1):
                 continue  # Skip post if title is not found
 
             title = title_element.text.strip()
-            link = f"https://{ABB_HOSTNAME}{title_element['href']}"
+            # Listings may use either relative or absolute detail URLs. Keep the
+            # configured trusted hostname and use only the path from the listing.
+            detail_path = urlparse(title_element["href"]).path
+            if not detail_path:
+                continue
+            link = f"https://{ABB_HOSTNAME}{detail_path}"
 
             cover_image = post.select_one("img[src]")
             cover = (
@@ -331,9 +336,12 @@ def normalize_audiobookbay_detail_url(url):
     if parsed_url.query or parsed_url.fragment:
         return None
 
-    # Limit requests to expected detail page paths only.
+    # AudiobookBay currently serves listings under /abss/ and previously used
+    # /audio-books/. Limit requests to these expected detail-page paths only.
     normalized_path = re.sub(r"/+", "/", parsed_url.path or "")
-    if not re.fullmatch(r"/audio-books/[A-Za-z0-9._~%+\-]+/?", normalized_path):
+    if not re.fullmatch(
+        r"/(?:abss|audio-books)/[A-Za-z0-9._~%+\-]+/?", normalized_path
+    ):
         return None
 
     # Canonicalize to a fixed trusted origin and validated path only.
@@ -489,6 +497,24 @@ def details():
     except Exception as e:
         print(f"[ERROR] Failed to load book details: {e}")
         return jsonify({"message": "Unable to parse AudiobookBay details"}), 500
+
+
+@app.route("/magnet", methods=["POST"])
+def magnet():
+    """Return the magnet URI for a validated AudiobookBay detail page."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"message": "Invalid JSON request body"}), 400
+
+    details_url = normalize_audiobookbay_detail_url(data.get("link"))
+    if not details_url:
+        return jsonify({"message": "Invalid AudiobookBay detail link"}), 400
+
+    magnet_link = extract_magnet_link(details_url)
+    if not magnet_link:
+        return jsonify({"message": "Failed to extract magnet link"}), 502
+
+    return jsonify({"magnet_link": magnet_link})
 
 
 # Endpoint for search page

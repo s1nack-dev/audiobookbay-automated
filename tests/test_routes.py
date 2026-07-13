@@ -108,6 +108,33 @@ def test_details_rejects_other_hosts_and_reports_fetch_errors(
     assert response.get_json()["message"] == "Unable to load details from AudiobookBay"
 
 
+def test_magnet_returns_extracted_link_and_rejects_invalid_links(
+    monkeypatch, client, app_module
+):
+    monkeypatch.setattr(app_module, "ABB_HOSTNAME", "abb.example")
+    extract_magnet_link = Mock(return_value="magnet:?xt=urn:btih:abc")
+    monkeypatch.setattr(app_module, "extract_magnet_link", extract_magnet_link)
+
+    response = client.post("/magnet", json={"link": "https://abb.example/abss/book"})
+
+    assert response.status_code == 200
+    assert response.get_json() == {"magnet_link": "magnet:?xt=urn:btih:abc"}
+    extract_magnet_link.assert_called_once_with("https://abb.example/abss/book")
+    assert client.post("/magnet", json={}).status_code == 400
+
+
+def test_magnet_reports_when_link_cannot_be_extracted(monkeypatch, client, app_module):
+    monkeypatch.setattr(app_module, "ABB_HOSTNAME", "abb.example")
+    monkeypatch.setattr(app_module, "extract_magnet_link", Mock(return_value=None))
+
+    response = client.post(
+        "/magnet", json={"link": "https://abb.example/audio-books/book"}
+    )
+
+    assert response.status_code == 502
+    assert response.get_json()["message"] == "Failed to extract magnet link"
+
+
 def test_send_rejects_invalid_or_unavailable_magnet(monkeypatch, client, app_module):
     assert client.post("/send", json={}).status_code == 400
 

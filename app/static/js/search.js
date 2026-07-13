@@ -473,6 +473,9 @@ function initializeDetailsModal() {
   if (!modal || !closeButton) return;
 
   closeButton.addEventListener("click", closeBookDetails);
+  document
+    .getElementById("details-magnet-download")
+    .addEventListener("click", downloadDetailsMagnetLink);
   modal.addEventListener("click", (event) => {
     if (event.target === modal) closeBookDetails();
   });
@@ -534,7 +537,38 @@ function renderBookDetails(details) {
     paragraph.textContent = text;
     description.appendChild(paragraph);
   });
-  document.getElementById("details-source-link").href = details.source_url;
+  const sourceLink = document.getElementById("details-source-link");
+  sourceLink.href = details.source_url;
+  const magnetButton = document.getElementById("details-magnet-download");
+  magnetButton.dataset.detailsUrl = details.source_url;
+  document.getElementById("details-magnet-result").hidden = true;
+  document.getElementById("details-magnet-value").value = "";
+  document.getElementById("details-magnet-link").removeAttribute("href");
+}
+
+async function downloadDetailsMagnetLink(event) {
+  const button = event.currentTarget;
+  const link = button.dataset.detailsUrl;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Preparing magnet link…";
+
+  try {
+    const response = await fetch("/magnet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ link }),
+    });
+    const data = await getResponseData(response, "Unable to get magnet link");
+    document.getElementById("details-magnet-value").value = data.magnet_link;
+    document.getElementById("details-magnet-link").href = data.magnet_link;
+    document.getElementById("details-magnet-result").hidden = false;
+  } catch (error) {
+    setDetailsModalState({ loading: false, error: error.message, details: true });
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 }
 
 async function showBookDetails(link) {
