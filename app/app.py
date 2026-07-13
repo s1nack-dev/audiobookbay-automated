@@ -327,15 +327,17 @@ def normalize_audiobookbay_detail_url(url):
     if port not in (None, 443):
         return None
 
-    # Limit requests to expected detail page paths only.
-    if not re.fullmatch(r"/audio-books/.+", parsed_url.path or ""):
+    # Reject query strings and fragments to avoid user-controlled URL variants.
+    if parsed_url.query or parsed_url.fragment:
         return None
 
-    # Canonicalize to the verified host/scheme and preserve only path+query.
-    return urljoin(
-        f"https://{ABB_HOSTNAME.lower()}",
-        parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else ""),
-    )
+    # Limit requests to expected detail page paths only.
+    normalized_path = re.sub(r"/+", "/", parsed_url.path or "")
+    if not re.fullmatch(r"/audio-books/[A-Za-z0-9._~%+\-]+/?", normalized_path):
+        return None
+
+    # Canonicalize to a fixed trusted origin and validated path only.
+    return f"https://{ABB_HOSTNAME.lower()}{normalized_path}"
 
 
 def is_audiobookbay_detail_url(url):
