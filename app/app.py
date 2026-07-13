@@ -202,6 +202,9 @@ def search_audiobookbay(query, page=1):
             detail_path = urlparse(title_element["href"]).path
             if not detail_path:
                 continue
+            detail_path = (
+                detail_path if detail_path.startswith("/") else f"/{detail_path}"
+            )
             link = f"https://{ABB_HOSTNAME}{detail_path}"
 
             cover_image = post.select_one("img[src]")
@@ -339,6 +342,14 @@ def normalize_audiobookbay_detail_url(url):
     # AudiobookBay currently serves listings under /abss/ and previously used
     # /audio-books/. Limit requests to these expected detail-page paths only.
     normalized_path = re.sub(r"/+", "/", parsed_url.path or "")
+
+    # Reject paths containing directory traversal sequences or backslashes
+    if "\\" in normalized_path:
+        return None
+    path_segments = normalized_path.strip("/").split("/")
+    if any(segment in (".", "..") for segment in path_segments):
+        return None
+
     if not re.fullmatch(
         r"/(?:abss|audio-books)/[A-Za-z0-9._~%+\-]+/?", normalized_path
     ):
@@ -359,7 +370,9 @@ def extract_magnet_link(details_url):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     }
     try:
-        response = requests.get(details_url, headers=headers, allow_redirects=False)
+        response = requests.get(
+            details_url, headers=headers, timeout=15, allow_redirects=False
+        )
         if response.status_code != 200:
             print(
                 f"[ERROR] Failed to fetch details page. Status Code: {response.status_code}"

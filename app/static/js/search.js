@@ -547,6 +547,7 @@ function renderBookDetails(details) {
 }
 
 async function downloadDetailsMagnetLink(event) {
+  const requestId = detailsRequestId;
   const button = event.currentTarget;
   const link = button.dataset.detailsUrl;
   const originalText = button.textContent;
@@ -560,14 +561,23 @@ async function downloadDetailsMagnetLink(event) {
       body: JSON.stringify({ link }),
     });
     const data = await getResponseData(response, "Unable to get magnet link");
+    if (requestId !== detailsRequestId) return;
+    document.getElementById("details-modal-error").hidden = true;
+    document.getElementById("details-modal-error").textContent = "";
     document.getElementById("details-magnet-value").value = data.magnet_link;
     document.getElementById("details-magnet-link").href = data.magnet_link;
     document.getElementById("details-magnet-result").hidden = false;
   } catch (error) {
+    if (requestId !== detailsRequestId) return;
+    document.getElementById("details-magnet-result").hidden = true;
+    document.getElementById("details-magnet-value").value = "";
+    document.getElementById("details-magnet-link").removeAttribute("href");
     setDetailsModalState({ loading: false, error: error.message, details: true });
   } finally {
-    button.disabled = false;
-    button.textContent = originalText;
+    if (requestId === detailsRequestId) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
