@@ -328,7 +328,15 @@ def normalize_audiobookbay_detail_url(url):
         return None
 
     # Canonicalize to the verified host/scheme and preserve only path+query.
-    return urljoin(f"https://{ABB_HOSTNAME.lower()}", parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else ""))
+    return urljoin(
+        f"https://{ABB_HOSTNAME.lower()}",
+        parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else ""),
+    )
+
+
+def is_audiobookbay_detail_url(url):
+    """Return whether *url* is a safe AudiobookBay detail-page URL."""
+    return normalize_audiobookbay_detail_url(url) is not None
 
 
 # Helper function to extract magnet link from details page
@@ -411,19 +419,12 @@ def detail_label_value(page_text, label):
 
 def extract_book_details(details_url):
     """Fetch and parse the displayable details from an AudiobookBay listing."""
-    parsed = urlparse(details_url or "")
-    allowed_hosts = {"audiobookbay.lu", "www.audiobookbay.lu"}
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.hostname.lower() not in allowed_hosts
-    ):
+    safe_details_url = normalize_audiobookbay_detail_url(details_url)
+    if not safe_details_url:
         raise requests.exceptions.RequestException("Blocked outbound URL")
 
     response = requests.get(
-        details_url,
+        safe_details_url,
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         },
@@ -455,9 +456,9 @@ def extract_book_details(details_url):
         "read_by": detail_label_value(page_text, "Read by"),
         "format": detail_label_value(page_text, "Format"),
         "bitrate": detail_label_value(page_text, "Bitrate"),
-        "cover": urljoin(details_url, cover["src"]) if cover else None,
+        "cover": urljoin(safe_details_url, cover["src"]) if cover else None,
         "description": "\n\n".join(description) or "No description is available.",
-        "source_url": details_url,
+        "source_url": safe_details_url,
     }
 
 
@@ -471,8 +472,8 @@ def details():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"message": "Invalid JSON request body"}), 400
-    details_url = data.get("link")
-    if not is_audiobookbay_detail_url(details_url):
+    details_url = normalize_audiobookbay_detail_url(data.get("link"))
+    if not details_url:
         return jsonify({"message": "Invalid AudiobookBay detail link"}), 400
 
     try:
@@ -526,7 +527,9 @@ def search_page():
         return jsonify({"books": books, "has_more": bool(books) and page < PAGE_LIMIT})
     except SearchCooldownError as e:
         print(f"[WARN] Search cooldown triggered: {e}")
-        return jsonify({"message": "Search is temporarily rate-limited. Please try again shortly."}), 429
+        return jsonify(
+            {"message": "Search is temporarily rate-limited. Please try again shortly."}
+        ), 429
     except AudiobookBayUnavailableError as e:
         print(f"[ERROR] AudiobookBay unavailable during paginated search: {e}")
         return jsonify({"message": "AudiobookBay is currently unavailable"}), 502

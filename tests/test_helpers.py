@@ -272,7 +272,10 @@ def test_extract_magnet_link_uses_default_trackers(monkeypatch, app_module):
     magnet = app_module.extract_magnet_link("https://abb.example/book")
     tracker_urls = parse_qs(urlparse(magnet).query).get("tr", [])
 
-    assert any(urlparse(tracker_url).hostname == "tracker.openbittorrent.com" for tracker_url in tracker_urls)
+    assert any(
+        urlparse(tracker_url).hostname == "tracker.openbittorrent.com"
+        for tracker_url in tracker_urls
+    )
 
 
 def test_extract_book_details_parses_listing_content(monkeypatch, app_module):
@@ -288,8 +291,11 @@ def test_extract_book_details_parses_listing_content(monkeypatch, app_module):
     </div>
     """
     monkeypatch.setattr(app_module.requests, "get", Mock(return_value=response(page)))
+    monkeypatch.setattr(app_module, "ABB_HOSTNAME", "abb.example")
 
-    details = app_module.extract_book_details("https://abb.example/meditations")
+    details = app_module.extract_book_details(
+        "https://abb.example/audio-books/meditations"
+    )
 
     assert details == {
         "title": "Meditations",
@@ -303,7 +309,7 @@ def test_extract_book_details_parses_listing_content(monkeypatch, app_module):
         "bitrate": "Variable",
         "cover": "https://abb.example/covers/meditations.jpg",
         "description": "Nearly two thousand years after it was written, Meditations remains relevant.\n\nIt is a practical guide to living a meaningful life.",
-        "source_url": "https://abb.example/meditations",
+        "source_url": "https://abb.example/audio-books/meditations",
     }
 
 

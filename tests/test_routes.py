@@ -61,19 +61,28 @@ def test_search_page_reports_cooldown(monkeypatch, client, app_module):
     response = client.post("/search-page", json={"query": "Book", "page": 2})
 
     assert response.status_code == 429
-    assert response.get_json()["message"] == "Please wait 5 seconds"
+    assert response.get_json()["message"] == (
+        "Search is temporarily rate-limited. Please try again shortly."
+    )
 
 
 def test_details_returns_parsed_book_details(monkeypatch, client, app_module):
-    details = {"title": "Meditations", "source_url": "https://abb.example/book"}
+    details = {
+        "title": "Meditations",
+        "source_url": "https://abb.example/audio-books/meditations",
+    }
     monkeypatch.setattr(app_module, "ABB_HOSTNAME", "abb.example")
     monkeypatch.setattr(app_module, "extract_book_details", Mock(return_value=details))
 
-    response = client.post("/details", json={"link": "https://abb.example/book"})
+    response = client.post(
+        "/details", json={"link": "https://abb.example/audio-books/meditations"}
+    )
 
     assert response.status_code == 200
     assert response.get_json() == details
-    app_module.extract_book_details.assert_called_once_with("https://abb.example/book")
+    app_module.extract_book_details.assert_called_once_with(
+        "https://abb.example/audio-books/meditations"
+    )
 
 
 def test_details_rejects_other_hosts_and_reports_fetch_errors(
@@ -81,7 +90,9 @@ def test_details_rejects_other_hosts_and_reports_fetch_errors(
 ):
     monkeypatch.setattr(app_module, "ABB_HOSTNAME", "abb.example")
     assert (
-        client.post("/details", json={"link": "https://other.example/book"}).status_code
+        client.post(
+            "/details", json={"link": "https://other.example/audio-books/book"}
+        ).status_code
         == 400
     )
 
@@ -90,7 +101,9 @@ def test_details_rejects_other_hosts_and_reports_fetch_errors(
         "extract_book_details",
         Mock(side_effect=requests.exceptions.RequestException("offline")),
     )
-    response = client.post("/details", json={"link": "https://abb.example/book"})
+    response = client.post(
+        "/details", json={"link": "https://abb.example/audio-books/book"}
+    )
     assert response.status_code == 502
     assert response.get_json()["message"] == "Unable to load details from AudiobookBay"
 
@@ -108,7 +121,7 @@ def test_send_rejects_invalid_or_unavailable_magnet(monkeypatch, client, app_mod
 
     monkeypatch.setattr(app_module, "extract_magnet_link", Mock(return_value=None))
     response = client.post(
-        "/send", json={"link": "https://abb.example/book", "title": "Book"}
+        "/send", json={"link": "https://abb.example/audio-books/book", "title": "Book"}
     )
     assert response.status_code == 500
     assert response.get_json()["message"] == "Failed to extract magnet link"
@@ -125,7 +138,8 @@ def test_send_uses_qbittorrent_and_surfaces_errors(monkeypatch, client, app_modu
     monkeypatch.setattr(app_module, "qbittorrent_add_torrent", add_torrent)
 
     response = client.post(
-        "/send", json={"link": "https://abb.example/book", "title": "A / Book"}
+        "/send",
+        json={"link": "https://abb.example/audio-books/book", "title": "A / Book"},
     )
     assert response.status_code == 200
     add_torrent.assert_called_once_with("magnet:?xt=abc", "/audiobooks/A  Book")
@@ -134,7 +148,7 @@ def test_send_uses_qbittorrent_and_surfaces_errors(monkeypatch, client, app_modu
         app_module, "qbittorrent_add_torrent", Mock(side_effect=RuntimeError("denied"))
     )
     response = client.post(
-        "/send", json={"link": "https://abb.example/book", "title": "Book"}
+        "/send", json={"link": "https://abb.example/audio-books/book", "title": "Book"}
     )
     assert response.status_code == 500
     assert response.get_json()["message"] == "denied"
@@ -152,7 +166,8 @@ def test_send_supports_transmission_and_deluge(monkeypatch, client, app_module):
     monkeypatch.setattr(app_module, "transmissionrpc", Mock(return_value=transmission))
     assert (
         client.post(
-            "/send", json={"link": "https://abb.example/book", "title": "Book"}
+            "/send",
+            json={"link": "https://abb.example/audio-books/book", "title": "Book"},
         ).status_code
         == 200
     )
@@ -166,7 +181,8 @@ def test_send_supports_transmission_and_deluge(monkeypatch, client, app_module):
     )
     assert (
         client.post(
-            "/send", json={"link": "https://abb.example/book", "title": "Book"}
+            "/send",
+            json={"link": "https://abb.example/audio-books/book", "title": "Book"},
         ).status_code
         == 200
     )
@@ -184,7 +200,7 @@ def test_send_rejects_unsupported_client(monkeypatch, client, app_module):
     )
 
     response = client.post(
-        "/send", json={"link": "https://abb.example/book", "title": "Book"}
+        "/send", json={"link": "https://abb.example/audio-books/book", "title": "Book"}
     )
 
     assert response.status_code == 400
