@@ -97,7 +97,7 @@
             </td>
             <td>
                 <button class="details-button" type="button" data-details-url="{{ book.link }}">Details</button>
-                <button onclick="sendToQB('{{ book.link|escape }}', '{{ book.title|escape }}')">Download to Server</button>
+                <button class="download-button" type="button" data-link="{{ book.link }}" data-title="{{ book.title }}">Download to Server</button>
             </td>
         </tr>
         {% endfor %}

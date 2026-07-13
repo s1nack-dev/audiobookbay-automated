@@ -44,7 +44,7 @@ The app uses environment variables to configure its behavior. Below are the requ
 
 ```env
 DOWNLOAD_CLIENT=qbittorrent      # qbittorrent, transmission, or delugeweb
-DL_SCHEME=http
+DL_SCHEME=https                  # Use HTTPS (required when DL_API_KEY is set). Keep TLS verification enabled.
 DL_HOST=192.168.xxx.xxx        # IP or hostname of your qBittorrent or Transmission instance
 DL_PORT=8080                   # torrent WebUI port
 DL_USERNAME=YOUR_USER          # torrent username (not needed when using DL_API_KEY)
@@ -95,19 +95,22 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
    docker build -t audiobookbay-automated .
    ```
 
-2. Copy `.env.example` to `.env` and set the application values. Use this
-   `docker-compose.yml` for quick deployment:
+2. Copy `.env.example` to `.env` and set the application values. The included
+   `docker-compose.yaml` uses the locally built image:
 
    ```yaml
    services:
-     audiobookbay-downloader:
-       image: ghcr.io/jamesry96/audiobookbay-automated:latest
+     audiobookbay-automated:
+       image: audiobookbay-automated:latest
        ports:
          - "5078:5078"
-       container_name: audiobookbay-downloader
+       container_name: audiobookbay-automated
        env_file:
-         - .env
+         - ${APP_ENV_FILE:-.env}
    ```
+
+   Alternatively, you can use a pre-built image from GHCR by changing the image line to:
+   `image: ghcr.io/jamesry96/audiobookbay-automated:latest`
 
 3. **Start the Application**:
    ```bash

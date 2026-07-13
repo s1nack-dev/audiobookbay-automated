@@ -13,6 +13,9 @@ document.addEventListener("DOMContentLoaded", function () {
   document.querySelectorAll(".details-button").forEach((button) => {
     button.addEventListener("click", () => showBookDetails(button.dataset.detailsUrl));
   });
+  document.querySelectorAll(".download-button").forEach((button) => {
+    button.addEventListener("click", () => sendToQB(button.dataset.link, button.dataset.title));
+  });
   initializeDetailsModal();
   initializeLoadMore();
 });
@@ -350,7 +353,10 @@ function appendSearchResult(book) {
   detailsButton.addEventListener("click", () => showBookDetails(book.link));
   const downloadButton = document.createElement("button");
   downloadButton.type = "button";
+  downloadButton.className = "download-button";
   downloadButton.textContent = "Download to Server";
+  downloadButton.dataset.link = book.link;
+  downloadButton.dataset.title = book.title;
   downloadButton.addEventListener("click", () => sendToQB(book.link, book.title));
   actionsCell.append(detailsButton, downloadButton);
 

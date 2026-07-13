@@ -55,14 +55,14 @@ repos:
         name: Trivy (Docker configuration scan)
         entry: bash scripts/ci/checks.sh trivy-config
         language: system
-        files: ^(Dockerfile|docker/.*\.ya?ml)$
+        files: ^(Dockerfile|docker-compose\.ya?ml|docker/.*\.ya?ml)$
         pass_filenames: false
 
       - id: trivy-fs
         name: Trivy (dependencies and secrets)
         entry: bash scripts/ci/checks.sh trivy-fs
         language: system
-        files: ^(.*\.py|pyproject\.toml|uv\.lock|Dockerfile)$
+        files: ^(.*\.py|pyproject\.toml|uv\.lock|Dockerfile|docker-compose\.ya?ml)$
         pass_filenames: false
         stages: [pre-push]
 

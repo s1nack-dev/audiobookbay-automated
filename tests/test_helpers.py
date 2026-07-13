@@ -108,13 +108,18 @@ def test_qbittorrent_add_torrent_uses_password_login(monkeypatch, app_module):
 def test_qbittorrent_torrents_supports_both_authentication_modes(
     monkeypatch, app_module
 ):
+    from types import SimpleNamespace
+
     api_response = response(json_data=[{"name": "API book"}])
     monkeypatch.setattr(app_module, "DL_API_KEY", "qbt_test")
     monkeypatch.setattr(app_module, "DL_CATEGORY", "audiobooks")
     monkeypatch.setattr(
         app_module, "qbittorrent_api_request", Mock(return_value=api_response)
     )
-    assert app_module.qbittorrent_torrents() == [{"name": "API book"}]
+    result = app_module.qbittorrent_torrents()
+    assert len(result) == 1
+    assert isinstance(result[0], SimpleNamespace)
+    assert result[0].name == "API book"
 
     qb = Mock()
     qb.torrents_info.return_value = ["password book"]

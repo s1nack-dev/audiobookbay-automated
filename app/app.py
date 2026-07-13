@@ -10,7 +10,7 @@ from transmission_rpc import Client as transmissionrpc
 from deluge_web_client import DelugeWebClient as delugewebclient
 from deluge_web_client import TorrentOptions as delugetorrentoptions
 from dotenv import load_dotenv
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote_plus
 
 app = Flask(__name__)
 
@@ -54,6 +54,15 @@ else:
 DL_USERNAME = os.getenv("DL_USERNAME")
 DL_PASSWORD = os.getenv("DL_PASSWORD")
 DL_API_KEY = os.getenv("DL_API_KEY")
+
+# Validate HTTPS requirement when API key is configured
+if DL_API_KEY and DL_URL:
+    parsed = urlparse(DL_URL)
+    is_loopback = parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    if parsed.scheme != "https" and not is_loopback:
+        raise ValueError(
+            "DL_URL must use HTTPS when DL_API_KEY is set (unless using loopback address for local testing)"
+        )
 DL_CATEGORY = os.getenv("DL_CATEGORY", "Audiobookbay-Audiobooks")
 SAVE_PATH_BASE = os.getenv("SAVE_PATH_BASE")
 
@@ -127,9 +136,13 @@ def qbittorrent_add_torrent(magnet_link, save_path):
 
 def qbittorrent_torrents():
     if DL_API_KEY:
-        return qbittorrent_api_request(
+        torrents_data = qbittorrent_api_request(
             "GET", "torrents/info", params={"category": DL_CATEGORY}
         ).json()
+        # Wrap dicts in simple namespace for consistent attribute access
+        from types import SimpleNamespace
+
+        return [SimpleNamespace(**t) for t in torrents_data]
 
     qb = Client(host=DL_HOST, port=DL_PORT, username=DL_USERNAME, password=DL_PASSWORD)
     qb.auth_log_in()
@@ -156,7 +169,7 @@ def search_audiobookbay(query, page=1):
 
     print(f"Searching for '{query}' on https://{ABB_HOSTNAME}...")
 
-    url = f"https://{ABB_HOSTNAME}/page/{page}/?s={query.lower().replace(' ', '+')}"
+    url = f"https://{ABB_HOSTNAME}/page/{page}/?s={quote_plus(query.lower())}"
     try:
         response = requests.get(url, headers=headers, timeout=15)
         # Raise an exception for bad status codes (4xx or 5xx)
@@ -561,8 +574,7 @@ def status():
 
 
 if __name__ == "__main__":
-    # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host -- required for Docker port publishing
     app.run(
-        host="0.0.0.0",  # nosec B104
+        host="127.0.0.1",
         port=FLASK_PORT,
     )
