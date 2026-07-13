@@ -344,9 +344,10 @@ def normalize_audiobookbay_detail_url(url):
     normalized_path = re.sub(r"/+", "/", parsed_url.path or "")
 
     # Reject paths containing directory traversal sequences or backslashes
-    if "\\" in normalized_path:
+    decoded_path = requests.utils.unquote(normalized_path)
+    if "\\" in decoded_path or decoded_path.count("/") != normalized_path.count("/"):
         return None
-    path_segments = normalized_path.strip("/").split("/")
+    path_segments = decoded_path.strip("/").split("/")
     if any(segment in (".", "..") for segment in path_segments):
         return None
 
