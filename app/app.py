@@ -505,7 +505,8 @@ def search_page():
         books = get_search_results(query, page)
         return jsonify({"books": books, "has_more": bool(books) and page < PAGE_LIMIT})
     except SearchCooldownError as e:
-        return jsonify({"message": str(e)}), 429
+        print(f"[WARN] Search cooldown triggered: {e}")
+        return jsonify({"message": "Search is temporarily rate-limited. Please try again shortly."}), 429
     except AudiobookBayUnavailableError as e:
         print(f"[ERROR] AudiobookBay unavailable during paginated search: {e}")
         return jsonify({"message": "AudiobookBay is currently unavailable"}), 502
