@@ -301,14 +301,34 @@ def get_search_results(query, page=1):
     return results
 
 
-def is_audiobookbay_detail_url(url):
-    """Allow server-side detail fetches only for the configured AudiobookBay host."""
-    parsed_url = urlparse(url) if url else None
-    return bool(
-        parsed_url
-        and parsed_url.scheme == "https"
-        and parsed_url.hostname == ABB_HOSTNAME.lower()
-    )
+def normalize_audiobookbay_detail_url(url):
+    """Return a canonical, safe AudiobookBay detail URL or None."""
+    if not isinstance(url, str):
+        return None
+
+    candidate = url.strip()
+    if not candidate:
+        return None
+
+    parsed_url = urlparse(candidate)
+    if parsed_url.scheme != "https":
+        return None
+
+    if parsed_url.hostname != ABB_HOSTNAME.lower():
+        return None
+
+    # Disallow credentials in URL and non-default ports.
+    if parsed_url.username or parsed_url.password:
+        return None
+    if parsed_url.port not in (None, 443):
+        return None
+
+    # Limit requests to expected detail page paths only.
+    if not re.fullmatch(r"/audio-books/.+", parsed_url.path or ""):
+        return None
+
+    # Canonicalize to the verified host/scheme and preserve only path+query.
+    return urljoin(f"https://{ABB_HOSTNAME.lower()}", parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else ""))
 
 
 # Helper function to extract magnet link from details page
@@ -518,11 +538,12 @@ def send():
     data = request.json or {}
     details_url = data.get("link")
     title = data.get("title")
-    if not title or not is_audiobookbay_detail_url(details_url):
+    safe_details_url = normalize_audiobookbay_detail_url(details_url)
+    if not title or not safe_details_url:
         return jsonify({"message": "Invalid request"}), 400
 
     try:
-        magnet_link = extract_magnet_link(details_url)
+        magnet_link = extract_magnet_link(safe_details_url)
         if not magnet_link:
             return jsonify({"message": "Failed to extract magnet link"}), 500
 
