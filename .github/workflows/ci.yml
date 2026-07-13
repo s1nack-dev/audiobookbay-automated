@@ -85,7 +85,7 @@ jobs:
         run: |
           source scripts/ci/tool-versions.env
           uv tool install "pre-commit==${PRE_COMMIT_VERSION}"
-      - run: pre-commit run pip-audit --all-files --hook-stage pre-push
+      - run: pre-commit run uv-audit --all-files --hook-stage pre-push
 
   containers:
     name: Container checks

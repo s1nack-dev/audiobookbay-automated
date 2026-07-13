@@ -48,11 +48,8 @@ run_hook() {
         --config=p/python --config=p/security-audit --error \
         "${semgrep_targets[@]}"
       ;;
-    pip-audit)
-      uv export --frozen --no-dev \
-        --no-emit-project --format requirements-txt |
-        uvx --from "pip-audit==${PIP_AUDIT_VERSION}" pip-audit \
-          --strict -r /dev/stdin
+    uv-audit)
+      uv audit --preview-features audit --locked --no-dev
       ;;
     hadolint)
       local dockerfile="Dockerfile"
@@ -118,7 +115,7 @@ case "${1:-}" in
     run_hook semgrep "${@:2}"
     ;;
   dependencies)
-    run_hook pip-audit
+    run_hook uv-audit
     ;;
   containers)
     run_hook hadolint "${@:2}"
@@ -129,7 +126,7 @@ case "${1:-}" in
     run_hook detect-secrets "${@:2}"
     run_hook trufflehog
     ;;
-  ruff-check|ruff-format|ruff-format-check|pytest|bandit|semgrep|pip-audit|hadolint|trivy-config|trivy-fs|detect-secrets|trufflehog)
+  ruff-check|ruff-format|ruff-format-check|pytest|bandit|semgrep|uv-audit|hadolint|trivy-config|trivy-fs|detect-secrets|trufflehog)
     run_hook "$@"
     ;;
   *)

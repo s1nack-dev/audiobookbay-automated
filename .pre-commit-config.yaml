@@ -30,9 +30,9 @@ repos:
         files: ^.*\.py$
         stages: [pre-push]
 
-      - id: pip-audit
-        name: pip-audit (locked dependencies)
-        entry: bash scripts/ci/checks.sh pip-audit
+      - id: uv-audit
+        name: uv audit (locked runtime dependencies)
+        entry: bash scripts/ci/checks.sh uv-audit
         language: system
         files: ^(pyproject\.toml|uv\.lock)$
         pass_filenames: false
