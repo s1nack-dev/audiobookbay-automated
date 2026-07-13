@@ -35,6 +35,7 @@ AudiobookBay Downloader provides a simple and user-friendly interface for users 
 ### Prerequisites
 - **Deluge, qBittorrent or Transmission** (with the WebUI enabled)
 - **Docker** (optional, for containerized deployments)
+- **uv** (for local Python development and tests)
 
 ### Environment Variables
 The app uses environment variables to configure its behavior. Below are the required variables:
@@ -114,12 +115,13 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
    ```
 
 ### Running Locally
-1. **Install Dependencies**:
-   Ensure you have Python installed, then install the required dependencies:
+1. **Install dependencies with uv**:
+
    ```bash
-   pip install -r requirements.txt
-   
-2. Create a .env file in the project directory to configure your application. Below is an  example of the required variables:
+   uv sync --all-groups
+   ```
+
+2. Create a `.env` file in the project directory to configure your application. Below is an example of the required variables:
     ```
     # Torrent Client Configuration
     DOWNLOAD_CLIENT=transmission # Change to delugeweb, transmission or qbittorrent
@@ -149,7 +151,7 @@ NAV_LINK_URL=https://audiobooks.yourdomain.com/
 
 3. Start the app:
    ```bash
-   python app.py
+   uv run python app/app.py
    ```
 
 ---

@@ -32,7 +32,7 @@ run_hook() {
       uvx --from "ruff==${RUFF_VERSION}" ruff format --check "${targets[@]}"
       ;;
     pytest)
-      uv run --extra test pytest -q
+      uv run --group test pytest -q
       ;;
     bandit)
       if (($#)); then
